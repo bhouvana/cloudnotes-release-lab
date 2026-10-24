@@ -1,0 +1,60 @@
+name: CloudNotes CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: cloudnotes-api
+
+jobs:
+  test-and-build:
+    name: Test and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        working-directory: app
+        run: npm install
+      - name: Run tests
+        working-directory: app
+        run: npm test
+      - name: Build container image
+        run: docker build -t cloudnotes-api:${{ github.sha }} .
+      - name: Verify image exists
+        run: docker image inspect cloudnotes-api:${{ github.sha }} >/dev/null
+
+  publish:
+    name: Publish image to Docker Hub
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push versioned and latest tags
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/cloudnotes-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/cloudnotes-api:${{ github.sha }}
